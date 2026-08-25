@@ -1,0 +1,249 @@
+---
+argument_specs:
+  main:
+    short_description: Install and configure resticprofile and restic for managing backups
+    options:
+      resticprofile_arch_map:
+        description: |
+          Mapping of the possible values of ansible_facts.architecture
+          to the resticprofile package architectures
+        type: dict
+
+      resticprofile_github_org:
+        description: Name of organisation for resticprofile github repository
+        type: str
+        default: creativeprojects
+
+      resticprofile_github_repo:
+        description: Name of resticprofile github repository
+        type: str
+        default: resticprofile
+
+      resticprofile_github_token:
+        description: Optional bearer token to use to authenticate with api.github.com
+        type: str
+        default: ""
+
+      resticprofile_archive_extension:
+        description: File extension for the resticprofile package archive
+        type: str
+        default: tar.gz
+
+      resticprofile_checksum_filename:
+        description: Filename for the resticprofile package checksums file on github
+        type: str
+        default: checksums.txt
+
+      resticprofile_checksum_type:
+        description: The resticprofile package checksum type
+        type: str
+        default: sha256
+
+      resticprofile_version:
+        description: Version to install (use "latest" for the latest version)
+        type: str
+        default: latest
+
+      resticprofile_install:
+        description: If true, install resticprofile
+        type: bool
+        default: true
+
+      resticprofile_bin_dir:
+        description: Directory for the resticprofile binaries
+        type: str
+        default: /opt/resticprofile
+
+      resticprofile_src_dir:
+        description: Directory for the downloaded resticprofile src archive
+        type: str
+        default: /opt/resticprofile/src
+
+      resticprofile_strip_components:
+        description: Strip NUMBER leading components from file names on extraction
+        type: int
+        default: 0
+
+      resticprofile_src_files:
+        description: List of files to extract from the source archive
+        type: list
+        elements: str
+        default:
+          - resticprofile
+
+      resticprofile_clean_src_dir:
+        description: Remove old downloaded archive files from resticprofile src directory
+        type: bool
+        default: true
+
+      resticprofile_cli_tools:
+        description: List of CLI tool binaries that should have symlinks created in /usr/local/bin/
+        type: list
+        default:
+          - resticprofile
+
+      resticprofile_update_time:
+        description: |
+          How often to update resticprofile, accepts a systemd time,
+          see https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html,
+          or "never"
+        type: str
+        default: "daily"
+
+      resticprofile_update_randomized_delay:
+        description: |
+          Delay the resticprofile update timer by a random time up
+          to this value or empty string for no delay
+        type: str
+        default: "6h"
+
+      resticprofile_config_dir:
+        description: Directory for resticprofile configuration
+        type: str
+        default: /etc/resticprofile
+
+      resticprofile_config_file:
+        description: Filename for resticprofile config file
+        type: str
+        default: profiles.yml
+
+      resticprofile_config:
+        description: Contents of the resticprofile config file, as string or dict
+        type: raw
+
+      resticprofile_template_dir:
+        description: Directory for resticprofile templates
+        type: str
+        default: /etc/resticprofile/templates
+
+      resticprofile_template_files:
+        description: List of resticprofile template files to create
+        type: list
+        elements: dict
+        options:
+          name:
+            description: Name of template file
+            type: str
+            required: true
+          config:
+            description: Template file contents
+            type: str
+            required: true
+
+      resticprofile_restic_arch_map:
+        description: |
+          Mapping of the possible values of ansible_facts.architecture
+          to the restic package architectures
+        type: dict
+
+      resticprofile_restic_github_org:
+        description: Name of organisation for restic github repository
+        type: str
+        default: restic
+
+      resticprofile_restic_github_repo:
+        description: Name of restic github repository
+        type: str
+        default: restic
+
+      resticprofile_restic_archive_extension:
+        description: File extension for the restic package archive
+        type: str
+        default: bz2
+
+      resticprofile_restic_checksum_filename:
+        description: Filename for the restic package checksums file on github
+        type: str
+        default: SHA256SUMS
+
+      resticprofile_restic_checksum_type:
+        description: The restic package checksum type
+        type: str
+        default: sha256
+
+      resticprofile_restic_signature_filename:
+        description: Filename for the restic checksums signature file on github
+        type: str
+        default: SHA256SUMS.asc
+
+      resticprofile_restic_gpg_keyserver:
+        description: GPG keyserver to use for fetching restic public key
+        type: str
+        default: hkps://keyserver.ubuntu.com
+
+      resticprofile_restic_version:
+        description: Version to install (use "latest" for the latest version)
+        type: str
+        default: latest
+
+      resticprofile_restic_install:
+        description: If true, install restic
+        type: bool
+        default: true
+
+      resticprofile_restic_bin_dir:
+        description: Directory for the restic binaries
+        type: str
+        default: /opt/restic
+
+      resticprofile_restic_src_dir:
+        description: Directory for the downloaded restic src archive
+        type: str
+        default: /opt/restic/src
+
+      resticprofile_restic_strip_components:
+        description: Strip NUMBER leading components from file names on extraction
+        type: int
+        default: 1
+
+      resticprofile_restic_src_files:
+        description: List of files to extract from the source archive
+        type: list
+        elements: str
+        default:
+          - restic
+
+      resticprofile_restic_clean_src_dir:
+        description: Remove old downloaded archive files from restic src directory
+        type: bool
+        default: true
+
+      resticprofile_restic_cli_tools:
+        description: List of CLI tool binaries that should have symlinks created in /usr/local/bin/
+        type: list
+        default:
+          - restic
+
+      resticprofile_restic_update_time:
+        description: |
+          How often to update restic, accepts a systemd time,
+          see https://www.freedesktop.org/software/systemd/man/latest/systemd.time.html,
+          or "never"
+        type: str
+        default: "daily"
+
+      resticprofile_restic_update_randomized_delay:
+        description: |
+          Delay the restic update timer by a random time up
+          to this value or empty string for no delay
+        type: str
+        default: "6h"
+
+      resticprofile_restic_config_dir:
+        description: Directory for restic configuration files
+        type: str
+        default: /etc/resticprofile/restic
+
+      resticprofile_restic_config_files:
+        description: List of restic configuration files to create
+        type: list
+        elements: dict
+        options:
+          name:
+            description: Name of config file
+            type: str
+            required: true
+          config:
+            description: Config file contents
+            type: str
+            required: true

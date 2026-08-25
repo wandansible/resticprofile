@@ -1,0 +1,54 @@
+---
+- name: Converge
+  hosts: all
+  tasks:
+    - name: "Include wandansible.resticprofile"
+      ansible.builtin.include_role:
+        name: "wandansible.resticprofile"
+      vars:
+        resticprofile_github_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
+
+        resticprofile_config: |
+          version: "2"
+
+          global:
+            default-command: version
+
+          groups:
+            full-backup:
+              continue-on-error: true
+              profiles:
+                - root
+              schedules:
+                backup:
+                  at: daily
+
+          profiles:
+            default:
+              repository: "/srv/restic"
+
+            root:
+              inherit: default
+              backup:
+                exclude-caches: true
+                exclude:
+                  - /var/log
+                  - /var/cache
+                  - /var/tmp
+                  - /var/run
+                  - /tmp
+                  - /dev
+                  - /sys
+                  - /run
+                  - /proc
+                one-file-system: true
+                source:
+                  - /
+              retention:
+                after-backup: true
+                before-backup: false
+                keep-daily: 1
+                keep-weekly: 1
+                keep-monthly: 1
+                keep-yearly: 1
+                prune: true
