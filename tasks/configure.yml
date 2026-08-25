@@ -1,0 +1,59 @@
+---
+- name: "Create configuration directory"
+  ansible.builtin.file:
+    path: "{{ resticprofile_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: u=rwx,g=rx,o=
+
+- name: "Configure resticprofile"
+  ansible.builtin.template:
+    src: profiles.yml
+    dest: "{{ resticprofile_config_dir }}/{{ resticprofile_config_file }}"
+    owner: "root"
+    group: "root"
+    mode: u=rw,g=r,o=
+  when: resticprofile_config != ""
+  notify: "schedule resticprofile"
+
+- name: "Create template directory"
+  ansible.builtin.file:
+    path: "{{ resticprofile_template_dir }}"
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: u=rwx,g=rx,o=
+  when: resticprofile_template_files | length >= 1
+
+- name: "Create template files"
+  ansible.builtin.template:
+    src: config
+    dest: "{{ resticprofile_template_dir }}/{{ item.name }}.tmpl"
+    owner: "root"
+    group: "root"
+    mode: u=rw,g=r,o=
+  loop: "{{ resticprofile_template_files }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: "Create restic config directory"
+  ansible.builtin.file:
+    path: "{{ resticprofile_restic_config_dir }}"
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: u=rwx,g=rx,o=
+  when: resticprofile_restic_config_files | length >= 1
+
+- name: "Create template files"
+  ansible.builtin.template:
+    src: config
+    dest: "{{ resticprofile_restic_config_dir }}/{{ item.name }}"
+    owner: "root"
+    group: "root"
+    mode: u=rw,g=r,o=
+  loop: "{{ resticprofile_restic_config_files }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true

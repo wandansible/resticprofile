@@ -1,0 +1,223 @@
+---
+- name: "Create directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: u=rwx,g=rx,o=rx
+  loop:
+    - "{{ resticprofile_restic_bin_dir }}"
+    - "{{ resticprofile_restic_src_dir }}"
+
+- name: "Get GitHub release information"
+  run_once: true
+  delegate_to: localhost
+  delegate_facts: true
+  when:
+    - "'github_resticprofile_restic_release_info' not in hostvars['localhost'].ansible_facts"
+  block:
+    - name: "Get GitHub release information"
+      ansible.builtin.uri:
+        url: >-
+          {{ "https://api.github.com/repos/" + resticprofile_restic_github_org + "/" + resticprofile_restic_github_repo
+             + "/releases"
+             + ("/tags" if resticprofile_restic_version != "latest" else "") + "/" + resticprofile_restic_version }}
+        method: GET
+        return_content: true
+        status_code: 200
+        body_format: json
+        headers: >-
+          {{ {"Authorization": "Bearer " + resticprofile_github_token}
+             if resticprofile_github_token != "" else {} }}
+      retries: 6
+      delay: 15
+      register: _release_info
+      check_mode: false
+
+    - name: Cache GitHub release information
+      ansible.builtin.set_fact:
+        github_resticprofile_restic_release_info: "{{ _release_info.json }}"
+        cacheable: true
+
+- name: Download release archive
+  vars:
+    _restic_archive_url: >-
+      {{ hostvars["localhost"].ansible_facts.github_resticprofile_restic_release_info.assets
+         | selectattr("name", "search", "restic", ignorecase=true)
+         | selectattr("name", "search", "linux", ignorecase=true)
+         | selectattr("name", "search", resticprofile_restic_arch_map[ansible_facts.architecture], ignorecase=true)
+         | selectattr("name", "search", "\."+resticprofile_restic_archive_extension+"$")
+         | map(attribute="browser_download_url")
+         | first
+         | default(None) }}
+    _restic_archive_filename: "{{ _restic_archive_url | split('/') | last }}"
+    _restic_checksum_url: >-
+      {{ hostvars["localhost"].ansible_facts.github_resticprofile_restic_release_info.assets
+         | selectattr("name", "equalto", resticprofile_restic_checksum_filename)
+         | map(attribute="browser_download_url")
+         | first
+         | default(None) }}
+    _restic_signature_url: >-
+      {{ hostvars["localhost"].ansible_facts.github_resticprofile_restic_release_info.assets
+         | selectattr("name", "equalto", resticprofile_restic_signature_filename)
+         | map(attribute="browser_download_url")
+         | first
+         | default(None) }}
+  block:
+    - name: Get archive checksums
+      ansible.builtin.uri:
+        url: "{{ _restic_checksum_url }}"
+        return_content: true
+      register: _restic_archive_checksums
+      retries: 6
+      delay: 15
+
+    - name: Check for GPG CLI tool
+      ansible.builtin.command:
+        cmd: gpg --version
+      failed_when: false
+      changed_when: false
+      register: _gpg_cli
+
+    - name: Verify GPG signature of archive
+      when: _gpg_cli.rc == 0
+      block:
+        - name: "Download signature file"
+          ansible.builtin.get_url:
+            url: "{{ _restic_signature_url }}"
+            dest: "{{ resticprofile_restic_src_dir }}/{{ resticprofile_restic_signature_filename }}"
+            owner: root
+            group: root
+            mode: u=rw,g=r,o=r
+          changed_when: false
+          retries: 6
+          delay: 15
+
+        - name: Create temporary GPG keyring directory
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: ".gpg-keyring"
+          changed_when: false
+          register: _gpg_keyring_dir
+
+        - name: Verify archive signature
+          ansible.builtin.command:
+            cmd: >-
+              gpg --homedir '{{ _gpg_keyring_dir.path }}'
+                  --auto-key-retrieve
+                  --keyserver '{{ resticprofile_restic_gpg_keyserver }}'
+                  --verify
+                  '{{ resticprofile_restic_src_dir }}/{{ resticprofile_restic_signature_filename }}'
+                  -
+            stdin: "{{ _restic_archive_checksums.content }}"
+            stdin_add_newline: false
+          changed_when: false
+
+        - name: Remove temporary GPG keyring directory
+          ansible.builtin.file:
+            path: "{{ _gpg_keyring_dir.path }}"
+            state: absent
+          changed_when: false
+
+    - name: "Download archive"
+      vars:
+        _restic_archive_checksum: >-
+          {{ _restic_archive_checksums.content.splitlines()
+             | select("search", "\s"+_restic_archive_filename+"$")
+             | first | default('') | split(' ') | first | default(None) }}
+      ansible.builtin.get_url:
+        url: "{{ _restic_archive_url }}"
+        dest: "{{ resticprofile_restic_src_dir }}/{{ _restic_archive_filename }}"
+        checksum: "{{ resticprofile_restic_checksum_type }}:{{ _restic_archive_checksum }}"
+        owner: root
+        group: root
+        mode: u=rw,g=r,o=r
+      retries: 6
+      delay: 15
+
+    - name: "Decompress binary"
+      community.general.decompress:
+        src: "{{ resticprofile_restic_src_dir }}/{{ _restic_archive_filename }}"
+        dest: "{{ resticprofile_restic_bin_dir }}/{{ item }}"
+        format: "{{ resticprofile_restic_archive_extension }}"
+        owner: root
+        group: root
+        mode: u=rwx,g=rx,o=rx
+      loop: "{{ resticprofile_restic_src_files }}"
+      ignore_errors: "{{ ansible_check_mode }}"
+
+    - name: Get downloaded archive files
+      ansible.builtin.find:
+        paths: "{{ resticprofile_restic_src_dir }}"
+        patterns: "{{ '*' + _restic_archive_filename | splitext | last }}"
+      register: _restic_src_archives
+
+    - name: Remove older downloaded archive files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ _restic_src_archives.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when:
+        - "item.path | basename != _restic_archive_filename"
+        - "resticprofile_restic_clean_src_dir | bool"
+
+- name: "Create symbolic links for CLI tool binaries in /usr/local/bin"
+  ansible.builtin.file:
+    src: "{{ resticprofile_restic_bin_dir }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    owner: root
+    group: root
+    state: link
+  loop: "{{ resticprofile_restic_cli_tools }}"
+
+- name: "Enable restic update systemd timer"
+  when: resticprofile_restic_update_time != "never"
+  block:
+    - name: Add restic update service
+      ansible.builtin.template:
+        src: restic-update.service
+        dest: "/etc/systemd/system/restic-update.service"
+        owner: root
+        group: root
+        mode: u=rw,g=r,o=
+      register: _service_file
+      no_log: true
+
+    - name: Add restic update systemd timer
+      ansible.builtin.template:
+        src: restic-update.timer
+        dest: "/etc/systemd/system/restic-update.timer"
+        owner: root
+        group: root
+        mode: u=rw,g=r,o=r
+      register: _timer_file
+
+    - name: Start and enable restic update systemd timer
+      ansible.builtin.systemd:
+        name: restic-update.timer
+        daemon_reload: >-
+          {{ true if _service_file is changed or _timer_file is changed else false }}
+        state: started
+        enabled: true
+
+- name: "Disable restic update systemd timer"
+  when: resticprofile_restic_update_time == "never"
+  block:
+    - name: Remove restic update service and timer
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ item }}"
+        state: "absent"
+      loop:
+        - "restic-update.service"
+        - "restic-update.timer"
+      register: _remove_files
+
+    - name: Disable restic update systemd timer
+      ansible.builtin.command:
+        cmd: systemctl disable restic-update.timer
+      register: _systemctl_disable
+      changed_when: "'removed' in _systemctl_disable.stderr | lower"
+      when: _remove_files is changed

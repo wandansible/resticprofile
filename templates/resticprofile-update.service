@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+
+[Unit]
+Description="Update resticprofile"
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/resticprofile self-update --quiet
+User=root
+{% if resticprofile_github_token != "" %}
+Environment="GITHUB_TOKEN={{ resticprofile_github_token }}"
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target

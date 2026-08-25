@@ -1,0 +1,175 @@
+---
+- name: "Create directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: u=rwx,g=rx,o=rx
+  loop:
+    - "{{ resticprofile_bin_dir }}"
+    - "{{ resticprofile_src_dir }}"
+
+- name: "Get GitHub release information"
+  run_once: true
+  delegate_to: localhost
+  delegate_facts: true
+  when:
+    - "'github_resticprofile_release_info' not in hostvars['localhost'].ansible_facts"
+  block:
+    - name: "Get GitHub release information"
+      ansible.builtin.uri:
+        url: >-
+          {{ "https://api.github.com/repos/" + resticprofile_github_org + "/" + resticprofile_github_repo
+             + "/releases"
+             + ("/tags" if resticprofile_version != "latest" else "") + "/" + resticprofile_version }}
+        method: GET
+        return_content: true
+        status_code: 200
+        body_format: json
+        headers: >-
+          {{ {"Authorization": "Bearer " + resticprofile_github_token}
+             if resticprofile_github_token != "" else {} }}
+      retries: 6
+      delay: 15
+      register: _release_info
+      check_mode: false
+
+    - name: Cache GitHub release information
+      ansible.builtin.set_fact:
+        github_resticprofile_release_info: "{{ _release_info.json }}"
+        cacheable: true
+
+- name: Download release archive
+  vars:
+    _resticprofile_archive_url: >-
+      {{ hostvars["localhost"].ansible_facts.github_resticprofile_release_info.assets
+         | selectattr("name", "search", "resticprofile", ignorecase=true)
+         | selectattr("name", "search", "linux", ignorecase=true)
+         | selectattr("name", "search", resticprofile_arch_map[ansible_facts.architecture], ignorecase=true)
+         | selectattr("name", "search", "\."+resticprofile_archive_extension+"$")
+         | map(attribute='browser_download_url')
+         | first
+         | default(None) }}
+    _resticprofile_archive_filename: "{{ _resticprofile_archive_url | split('/') | last }}"
+    _resticprofile_checksum_url: >-
+      {{ hostvars["localhost"].ansible_facts.github_resticprofile_release_info.assets
+         | selectattr("name", "equalto", resticprofile_checksum_filename)
+         | map(attribute='browser_download_url')
+         | first
+         | default(None) }}
+  block:
+    - name: Get archive checksums
+      ansible.builtin.uri:
+        url: "{{ _resticprofile_checksum_url }}"
+        return_content: true
+      register: _resticprofile_archive_checksums
+      retries: 6
+      delay: 15
+
+    - name: "Download archive"
+      vars:
+        _resticprofile_archive_checksum: >-
+          {{ _resticprofile_archive_checksums.content.splitlines()
+             | select('search', "\s"+_resticprofile_archive_filename+"$")
+             | first | default('') | split(' ') | first | default(None) }}
+      ansible.builtin.get_url:
+        url: "{{ _resticprofile_archive_url }}"
+        dest: "{{ resticprofile_src_dir }}/{{ _resticprofile_archive_filename }}"
+        checksum: "{{ resticprofile_checksum_type }}:{{ _resticprofile_archive_checksum }}"
+        owner: root
+        group: root
+        mode: u=rw,g=r,o=r
+      retries: 6
+      delay: 15
+
+    - name: "Extract files from archive"
+      ansible.builtin.unarchive:
+        src: "{{ resticprofile_src_dir }}/{{ _resticprofile_archive_filename }}"
+        remote_src: true
+        dest: "{{ resticprofile_bin_dir }}"
+        extra_opts:
+          - "--strip-components={{ resticprofile_strip_components }}"
+          - "--wildcards"
+          - "--no-anchored"
+          - "{{ item }}"
+        owner: root
+        group: root
+      loop: "{{ resticprofile_src_files }}"
+      ignore_errors: "{{ ansible_check_mode }}"
+      notify: "schedule resticprofile"
+
+    - name: Get downloaded archive files
+      ansible.builtin.find:
+        paths: "{{ resticprofile_src_dir }}"
+        patterns: "{{ '*' + _resticprofile_archive_filename | splitext | last }}"
+      register: _resticprofile_src_archives
+
+    - name: Remove older downloaded archive files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ _resticprofile_src_archives.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when:
+        - "item.path | basename != _resticprofile_archive_filename"
+        - "resticprofile_clean_src_dir | bool"
+
+- name: "Create symbolic links for CLI tool binaries in /usr/local/bin"
+  ansible.builtin.file:
+    src: "{{ resticprofile_bin_dir }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    owner: root
+    group: root
+    state: link
+  loop: "{{ resticprofile_cli_tools }}"
+
+- name: "Enable resticprofile update systemd timer"
+  when: resticprofile_update_time != "never"
+  block:
+    - name: Add resticprofile update service
+      ansible.builtin.template:
+        src: resticprofile-update.service
+        dest: "/etc/systemd/system/resticprofile-update.service"
+        owner: root
+        group: root
+        mode: u=rw,g=r,o=
+      register: _service_file
+      no_log: true
+
+    - name: Add resticprofile update systemd timer
+      ansible.builtin.template:
+        src: resticprofile-update.timer
+        dest: "/etc/systemd/system/resticprofile-update.timer"
+        owner: root
+        group: root
+        mode: u=rw,g=r,o=r
+      register: _timer_file
+
+    - name: Start and enable resticprofile update systemd timer
+      ansible.builtin.systemd:
+        name: resticprofile-update.timer
+        daemon_reload: >-
+          {{ true if _service_file is changed or _timer_file is changed else false }}
+        state: started
+        enabled: true
+
+- name: "Disable resticprofile update systemd timer"
+  when: resticprofile_update_time == "never"
+  block:
+    - name: Remove resticprofile update service and timer
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ item }}"
+        state: "absent"
+      loop:
+        - "resticprofile-update.service"
+        - "resticprofile-update.timer"
+      register: _remove_files
+
+    - name: Disable resticprofile update systemd timer
+      ansible.builtin.command:
+        cmd: systemctl disable resticprofile-update.timer
+      register: _systemctl_disable
+      changed_when: "'removed' in _systemctl_disable.stderr | lower"
+      when: _remove_files is changed

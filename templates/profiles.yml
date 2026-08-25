@@ -1,0 +1,8 @@
+---
+# {{ ansible_managed }}
+
+{% if resticprofile_config is string %}
+{{ resticprofile_config | trim }}
+{% elif resticprofile_config is mapping %}
+{{ resticprofile_config | to_nice_yaml(indent=2, sort_keys=false) | trim }}
+{% endif %}

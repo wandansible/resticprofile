@@ -1,0 +1,10 @@
+---
+- name: resticprofile unschedule
+  ansible.builtin.command:
+    cmd: "resticprofile unschedule --all"
+  listen: schedule resticprofile
+
+- name: resticprofile schedule
+  ansible.builtin.command:
+    cmd: "resticprofile schedule --all --reload"
+  listen: schedule resticprofile
