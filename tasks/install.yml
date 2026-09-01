@@ -14,6 +14,7 @@
   run_once: true
   delegate_to: localhost
   delegate_facts: true
+  become: false
   when:
     - "'github_resticprofile_release_info' not in hostvars['localhost'].ansible_facts"
   block:
